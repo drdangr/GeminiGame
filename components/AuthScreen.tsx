@@ -1,16 +1,20 @@
 import React, { useState } from 'react';
+import { GameSetting, SETTING_NAMES } from '../types';
 
 interface AuthScreenProps {
-    onNewGame: (name: string) => void;
+    onNewGame: (name: string, setting: GameSetting) => void;
     onContinue: (name: string) => void;
 }
 
+const SETTINGS: GameSetting[] = ['FANTASY', 'CYBERPUNK', 'NOIR_DETECTIVE'];
+
 const AuthScreen: React.FC<AuthScreenProps> = ({ onNewGame, onContinue }) => {
     const [name, setName] = useState('');
+    const [setting, setSetting] = useState<GameSetting>('FANTASY');
 
     const handleNewGameClick = () => {
         if (name.trim()) {
-            onNewGame(name.trim());
+            onNewGame(name.trim(), setting);
         }
     };
 
@@ -22,7 +26,8 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onNewGame, onContinue }) => {
 
     const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
         if (e.key === 'Enter' && name.trim()) {
-            onContinue(name.trim());
+            // Default Enter action to Continue, as it's the primary button
+            handleContinueClick();
         }
     };
 
@@ -40,9 +45,29 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onNewGame, onContinue }) => {
                 onChange={(e) => setName(e.target.value)}
                 onKeyDown={handleKeyDown}
                 placeholder="Имя героя"
-                className="bg-gray-700 text-green-300 placeholder-gray-500 p-3 rounded-md focus:outline-none focus:ring-2 focus:ring-green-400 font-mono w-full max-w-sm mb-4 text-center text-lg"
+                className="bg-gray-700 text-green-300 placeholder-gray-500 p-3 rounded-md focus:outline-none focus:ring-2 focus:ring-green-400 font-mono w-full max-w-sm mb-6 text-center text-lg"
                 autoFocus
             />
+
+            <div className="mb-6">
+                <p className="text-gray-400 mb-3">Выберите сеттинг для новой игры:</p>
+                <div className="flex flex-wrap justify-center gap-3">
+                    {SETTINGS.map((s) => (
+                        <button
+                            key={s}
+                            onClick={() => setSetting(s)}
+                            className={`px-5 py-2 font-bold rounded-md focus:outline-none focus:ring-2 focus:ring-opacity-50 transition-all transform hover:scale-105
+                                ${setting === s 
+                                    ? 'bg-green-500 text-gray-900 ring-green-300' 
+                                    : 'bg-gray-700 text-green-300 hover:bg-gray-600'
+                                }`}
+                        >
+                            {SETTING_NAMES[s]}
+                        </button>
+                    ))}
+                </div>
+            </div>
+
             <div className="flex flex-col sm:flex-row space-y-4 sm:space-y-0 sm:space-x-4">
                 <button
                     onClick={handleContinueClick}
@@ -60,7 +85,7 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onNewGame, onContinue }) => {
                 </button>
             </div>
              <p className="text-gray-500 max-w-lg mt-8 text-sm">
-                Если игра с таким именем существует, "Продолжить" загрузит её. "Новая игра" перезапишет старое сохранение.
+                Если игра с таким именем существует, "Продолжить" загрузит её. "Новая игра" перезапишет старое сохранение с выбранным сеттингом.
             </p>
         </div>
     );

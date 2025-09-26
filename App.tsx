@@ -1,14 +1,16 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
-import { GameState, StoryEntry, PlayerState, SavedGame } from './types';
+import { GameState, StoryEntry, PlayerState, SavedGame, GameSetting } from './types';
 import * as geminiService from './services/geminiService';
 import Header from './components/Header';
 import StoryDisplay from './components/StoryDisplay';
 import ActionInput from './components/ActionInput';
 import AuthScreen from './components/AuthScreen';
 import PlayerStats from './components/PlayerStats';
+import GameOverScreen from './components/GameOverScreen';
 
 const App: React.FC = () => {
     const [gameState, setGameState] = useState<GameState>('UNAUTHENTICATED');
+    const [gameSetting, setGameSetting] = useState<GameSetting>('FANTASY');
     const [story, setStory] = useState<StoryEntry[]>([]);
     const [playerState, setPlayerState] = useState<PlayerState>({ health: 100, inventory: [] });
     const [playerName, setPlayerName] = useState<string | null>(null);
@@ -23,22 +25,23 @@ const App: React.FC = () => {
     useEffect(() => {
         if (playerName && (gameState === 'PLAYING' || gameState === 'ERROR')) {
             try {
-                const gameToSave: SavedGame = { story, playerState };
+                const gameToSave: SavedGame = { story, playerState, setting: gameSetting };
                 localStorage.setItem(`gemini_adventure_${playerName}`, JSON.stringify(gameToSave));
             } catch (error) {
                 console.error("Failed to save game:", error);
             }
         }
-    }, [story, playerState, playerName, gameState]);
+    }, [story, playerState, playerName, gameState, gameSetting]);
 
-    const handleNewGame = useCallback(async (name: string) => {
+    const handleNewGame = useCallback(async (name: string, setting: GameSetting) => {
         setPlayerName(name);
         setGameState('LOADING');
-        setStory([{ id: Date.now(), speaker: 'system', text: 'Создание нового мира для ' + name + '...' }]);
+        setGameSetting(setting);
+        setStory([{ id: Date.now(), speaker: 'system', text: `Создание нового мира (${setting}) для ${name}...` }]);
         setPlayerState({ health: 100, inventory: [] });
         
         try {
-            const initialResponse = await geminiService.startNewGame();
+            const initialResponse = await geminiService.startNewGame(setting);
             setStory([{ id: Date.now(), speaker: 'gemini', text: initialResponse.storyText }]);
             setPlayerState({ health: initialResponse.health, inventory: initialResponse.inventory });
             setGameState('PLAYING');
@@ -52,18 +55,26 @@ const App: React.FC = () => {
             const savedGameRaw = localStorage.getItem(`gemini_adventure_${name}`);
             if (savedGameRaw) {
                 const savedGame: SavedGame = JSON.parse(savedGameRaw);
+                // Check for game over state in saved game
+                if (savedGame.playerState.health <= 0) {
+                     handleNewGame(name, savedGame.setting || 'FANTASY'); // Start a new game if the saved one is over
+                     return;
+                }
                 setPlayerName(name);
                 setStory(savedGame.story);
                 setPlayerState(savedGame.playerState);
+                setGameSetting(savedGame.setting || 'FANTASY'); // Default to fantasy for old saves
                 setGameState('PLAYING');
             } else {
-                // If no save found, start a new game for them.
-                handleNewGame(name);
+                // If no save found, go back to auth screen to let them choose a setting.
+                // This is better than defaulting to a new fantasy game.
+                 setGameState('UNAUTHENTICATED');
             }
-        } catch (error) {
+        } catch (error)
+ {
             console.error("Failed to load game:", error);
-            // If loading fails, start a new game.
-            handleNewGame(name);
+            // If loading fails, just go back to auth screen.
+            setGameState('UNAUTHENTICATED');
         }
     }, [handleNewGame]);
 
@@ -84,13 +95,23 @@ const App: React.FC = () => {
         try {
             const response = await geminiService.sendAction(action, playerState);
             const newGeminiEntry: StoryEntry = { id: Date.now() + 1, speaker: 'gemini', text: response.storyText };
+            
             setStory(prevStory => [...prevStory, newGeminiEntry]);
             setPlayerState({ health: response.health, inventory: response.inventory });
-            setGameState('PLAYING');
+
+            if (response.health <= 0) {
+                setGameState('GAME_OVER');
+                // Clear save game on death
+                if(playerName) {
+                    localStorage.removeItem(`gemini_adventure_${playerName}`);
+                }
+            } else {
+                setGameState('PLAYING');
+            }
         } catch (error) {
             handleError(error);
         }
-    }, [gameState, playerState]);
+    }, [gameState, playerState, playerName]);
     
     const handleError = (error: unknown) => {
         console.error(error);
@@ -106,7 +127,7 @@ const App: React.FC = () => {
 
     return (
         <div className="bg-gray-900 text-white h-screen flex flex-col font-sans">
-            <Header onNewGame={() => playerName && handleNewGame(playerName)} onLogout={handleLogout} isLoading={gameState === 'LOADING'} playerName={playerName} />
+            <Header onNewGame={() => playerName && handleNewGame(playerName, gameSetting)} onLogout={handleLogout} isLoading={gameState === 'LOADING'} playerName={playerName} />
             <div className="flex-grow flex flex-row overflow-hidden">
                 <PlayerStats playerState={playerState} />
                 <main className="flex-grow flex flex-col overflow-hidden">
@@ -119,7 +140,10 @@ const App: React.FC = () => {
                     )}
                 </main>
             </div>
-            <ActionInput onSend={handleSendAction} isLoading={gameState === 'LOADING'} gameState={gameState} />
+            {gameState === 'GAME_OVER' 
+                ? <GameOverScreen onReturnToMenu={handleLogout} />
+                : <ActionInput onSend={handleSendAction} isLoading={gameState === 'LOADING'} gameState={gameState} />
+            }
         </div>
     );
 };
