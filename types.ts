@@ -1,5 +1,6 @@
 export type GameState = 'UNAUTHENTICATED' | 'INITIAL' | 'LOADING' | 'PLAYING' | 'ERROR' | 'GAME_OVER';
 export type GameSetting = 'FANTASY' | 'CYBERPUNK' | 'NOIR_DETECTIVE';
+export type Emotion = 'neutral' | 'tense' | 'action' | 'sad' | 'calm';
 
 export const SETTING_NAMES: Record<GameSetting, string> = {
     FANTASY: 'Фэнтези',
@@ -11,6 +12,7 @@ export interface StoryEntry {
   id: number;
   speaker: 'gemini' | 'user' | 'system';
   text: string;
+  emotion?: Emotion;
 }
 
 export interface PlayerState {
@@ -26,6 +28,7 @@ export interface SavedGame {
 
 export interface GeminiResponse {
   storyText: string;
+  emotion: Emotion;
   health: number;
   inventory: string[];
 }

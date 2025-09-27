@@ -1,8 +1,9 @@
 import React from 'react';
-import { PlayerState } from '../types';
+import { PlayerState, GameSetting, SETTING_NAMES } from '../types';
 
 interface PlayerStatsProps {
     playerState: PlayerState;
+    gameSetting: GameSetting;
 }
 
 const HealthBar: React.FC<{ health: number }> = ({ health }) => {
@@ -25,11 +26,16 @@ const HealthBar: React.FC<{ health: number }> = ({ health }) => {
     );
 };
 
-const PlayerStats: React.FC<PlayerStatsProps> = ({ playerState }) => {
+const PlayerStats: React.FC<PlayerStatsProps> = ({ playerState, gameSetting }) => {
     return (
         <aside className="w-64 bg-gray-800/50 p-4 border-r border-green-400/20 flex-shrink-0 overflow-y-auto font-mono flex flex-col space-y-6">
-            <h2 className="text-lg font-bold text-green-300 border-b border-green-400/20 pb-2">Состояние</h2>
-            
+            <div>
+                <h2 className="text-lg font-bold text-green-300 border-b border-green-400/20 pb-2 mb-2">Состояние</h2>
+                <div className="text-sm text-yellow-400">
+                    <span className="text-gray-400">Мир: </span>{SETTING_NAMES[gameSetting]}
+                </div>
+            </div>
+
             <HealthBar health={playerState.health} />
             
             <div>

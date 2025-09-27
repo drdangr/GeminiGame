@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
-import { GameState, StoryEntry, PlayerState, SavedGame, GameSetting } from './types';
+import { GameState, StoryEntry, PlayerState, SavedGame, GameSetting, SETTING_NAMES } from './types';
 import * as geminiService from './services/geminiService';
+import { speechService } from './services/speechService';
 import Header from './components/Header';
 import StoryDisplay from './components/StoryDisplay';
 import ActionInput from './components/ActionInput';
@@ -14,6 +15,22 @@ const App: React.FC = () => {
     const [story, setStory] = useState<StoryEntry[]>([]);
     const [playerState, setPlayerState] = useState<PlayerState>({ health: 100, inventory: [] });
     const [playerName, setPlayerName] = useState<string | null>(null);
+    const [isTtsEnabled, setIsTtsEnabled] = useState<boolean>(() => {
+        try {
+            return !!window.speechSynthesis && localStorage.getItem('tts_enabled') === 'true';
+        } catch {
+            return false;
+        }
+    });
+    const [availableVoices, setAvailableVoices] = useState<SpeechSynthesisVoice[]>([]);
+    const [selectedVoiceURI, setSelectedVoiceURI] = useState<string | null>(() => {
+        try {
+            return localStorage.getItem('tts_voice_uri');
+        } catch {
+            return null;
+        }
+    });
+
     const storyEndRef = useRef<HTMLDivElement>(null);
 
     // Auto-scrolling effect
@@ -33,16 +50,86 @@ const App: React.FC = () => {
         }
     }, [story, playerState, playerName, gameState, gameSetting]);
 
+    // Effect for loading available speech synthesis voices
+    useEffect(() => {
+        if (!window.speechSynthesis) return;
+
+        const loadAndSetVoices = () => {
+            const voices = window.speechSynthesis.getVoices().filter(v => v.lang === 'ru-RU');
+            setAvailableVoices(voices);
+        };
+        
+        loadAndSetVoices();
+        window.speechSynthesis.onvoiceschanged = loadAndSetVoices;
+
+        return () => {
+            window.speechSynthesis.onvoiceschanged = null;
+        };
+    }, []);
+
+    // Effect for saving TTS preference and selected voice
+    useEffect(() => {
+        try {
+            if (window.speechSynthesis) {
+                localStorage.setItem('tts_enabled', String(isTtsEnabled));
+                if (selectedVoiceURI) {
+                    localStorage.setItem('tts_voice_uri', selectedVoiceURI);
+                } else {
+                    localStorage.removeItem('tts_voice_uri');
+                }
+            }
+        } catch (error) {
+            console.error("Failed to save TTS settings:", error);
+        }
+    }, [isTtsEnabled, selectedVoiceURI]);
+
+    // Effect for speaking new Gemini messages
+    useEffect(() => {
+        if (!isTtsEnabled || story.length === 0) {
+            return;
+        }
+
+        const lastEntry = story[story.length - 1];
+        if (lastEntry.speaker === 'gemini' && lastEntry.emotion) {
+            speechService.speak(lastEntry.text, gameSetting, lastEntry.emotion, selectedVoiceURI);
+        }
+    }, [story, isTtsEnabled, gameSetting, selectedVoiceURI]);
+
+    const handleToggleTts = useCallback(() => {
+        if (!window.speechSynthesis) {
+            alert("Ваш браузер не поддерживает синтез речи.");
+            return;
+        }
+        setIsTtsEnabled(prev => {
+            const newState = !prev;
+            if (!newState) {
+                speechService.cancel(); // Stop speaking immediately if user disables it
+            }
+            return newState;
+        });
+    }, []);
+    
+    const handleVoiceChange = useCallback((uri: string) => {
+        setSelectedVoiceURI(uri === '' ? null : uri);
+        speechService.cancel(); // Stop current speech to potentially use new voice immediately
+    }, []);
+
     const handleNewGame = useCallback(async (name: string, setting: GameSetting) => {
+        speechService.cancel();
         setPlayerName(name);
         setGameState('LOADING');
         setGameSetting(setting);
-        setStory([{ id: Date.now(), speaker: 'system', text: `Создание нового мира (${setting}) для ${name}...` }]);
+        setStory([{ id: Date.now(), speaker: 'system', text: `Создание нового мира (${SETTING_NAMES[setting]}) для ${name}...` }]);
         setPlayerState({ health: 100, inventory: [] });
         
         try {
             const initialResponse = await geminiService.startNewGame(setting);
-            setStory([{ id: Date.now(), speaker: 'gemini', text: initialResponse.storyText }]);
+            setStory([{ 
+                id: Date.now(), 
+                speaker: 'gemini', 
+                text: initialResponse.storyText,
+                emotion: initialResponse.emotion,
+            }]);
             setPlayerState({ health: initialResponse.health, inventory: initialResponse.inventory });
             setGameState('PLAYING');
         } catch (error) {
@@ -51,6 +138,7 @@ const App: React.FC = () => {
     }, []);
     
     const handleContinueGame = useCallback((name: string) => {
+        speechService.cancel();
         try {
             const savedGameRaw = localStorage.getItem(`gemini_adventure_${name}`);
             if (savedGameRaw) {
@@ -79,6 +167,7 @@ const App: React.FC = () => {
     }, [handleNewGame]);
 
     const handleLogout = useCallback(() => {
+        speechService.cancel();
         setPlayerName(null);
         setStory([]);
         setPlayerState({ health: 100, inventory: [] });
@@ -94,7 +183,12 @@ const App: React.FC = () => {
 
         try {
             const response = await geminiService.sendAction(action, playerState);
-            const newGeminiEntry: StoryEntry = { id: Date.now() + 1, speaker: 'gemini', text: response.storyText };
+            const newGeminiEntry: StoryEntry = { 
+                id: Date.now() + 1, 
+                speaker: 'gemini', 
+                text: response.storyText,
+                emotion: response.emotion,
+            };
             
             setStory(prevStory => [...prevStory, newGeminiEntry]);
             setPlayerState({ health: response.health, inventory: response.inventory });
@@ -127,9 +221,19 @@ const App: React.FC = () => {
 
     return (
         <div className="bg-gray-900 text-white h-screen flex flex-col font-sans">
-            <Header onNewGame={() => playerName && handleNewGame(playerName, gameSetting)} onLogout={handleLogout} isLoading={gameState === 'LOADING'} playerName={playerName} />
+            <Header 
+                onNewGame={() => playerName && handleNewGame(playerName, gameSetting)} 
+                onLogout={handleLogout} 
+                isLoading={gameState === 'LOADING'} 
+                playerName={playerName} 
+                isTtsEnabled={isTtsEnabled} 
+                onToggleTts={handleToggleTts}
+                availableVoices={availableVoices}
+                selectedVoiceURI={selectedVoiceURI}
+                onVoiceChange={handleVoiceChange}
+             />
             <div className="flex-grow flex flex-row overflow-hidden">
-                <PlayerStats playerState={playerState} />
+                <PlayerStats playerState={playerState} gameSetting={gameSetting} />
                 <main className="flex-grow flex flex-col overflow-hidden">
                     {story.length === 0 ? (
                          <div className="flex-grow flex flex-col justify-center items-center text-center p-8 font-mono">
