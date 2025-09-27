@@ -1,11 +1,23 @@
 import { GoogleGenAI, Chat, Type } from '@google/genai';
 import { PlayerState, GeminiResponse, GameSetting } from '../types';
 
-if (!process.env.API_KEY) {
-    throw new Error("API_KEY environment variable not set");
+// Читаем API ключ ТОЛЬКО из переменных окружения
+const API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
+
+// Для отладки выводим все переменные окружения
+if (import.meta.env.DEV) {
+    console.log('All env variables:', import.meta.env);
+    console.log('VITE_GEMINI_API_KEY:', API_KEY);
+    console.log('API Key status:', API_KEY ? `Loaded (${API_KEY.substring(0, 10)}...)` : 'NOT LOADED');
 }
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+if (!API_KEY) {
+    const errorMsg = "API key not configured. Please set VITE_GEMINI_API_KEY in .env file";
+    console.error(errorMsg);
+    throw new Error(errorMsg);
+}
+
+const ai = new GoogleGenAI({ apiKey: API_KEY });
 
 let chat: Chat | null = null;
 
